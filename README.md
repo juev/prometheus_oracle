@@ -36,13 +36,13 @@ Example:
 ```
 # HELP oracledb_exporter_db_metric Business metrics from Database
 # TYPE oracledb_exporter_db_metric gauge
-oracledb_exporter_db_metric{database="DB1",exporter="oracledb",name="name1",value="101598180.65"} 1.0159818065e+08
-oracledb_exporter_db_metric{database="DB1",exporter="oracledb",name="name2",value="Text1"} 0
-oracledb_exporter_db_metric{database="DB2",exporter="oracledb",name="name1",value=""} 1
-oracledb_exporter_db_metric{database="DB2",exporter="oracledb",name="name2",value=""} 1
-oracledb_exporter_db_metric{database="DB2",exporter="oracledb",name="name3",value="Text2"} 0
+oracledb_exporter_db_metric{database="DB1",name="name1",value="101598180.65"} 1.0159818065e+08
+oracledb_exporter_db_metric{database="DB1",name="name2",value="Text1"} 0
+oracledb_exporter_db_metric{database="DB2",name="name1",value=""} 1
+oracledb_exporter_db_metric{database="DB2",name="name2",value=""} 1
+oracledb_exporter_db_metric{database="DB2",name="name3",value="Text2"} 0
 # HELP oracledb_exporter_up Database status
 # TYPE oracledb_exporter_up gauge
-oracledb_exporter_up{database="DB1",exporter="exporter"} 1
-oracledb_exporter_up{database="DB2",exporter="exporter"} 1
+oracledb_exporter_up{database="DB1"} 1
+oracledb_exporter_up{database="DB2"} 1
 ```
