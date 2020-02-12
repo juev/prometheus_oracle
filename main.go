@@ -64,13 +64,13 @@ func init() {
 			Subsystem: exporter,
 			Name:      "db_metric",
 			Help:      "Business metrics from Database",
-		}, []string{"exporter", "database", "name", "value"}),
+		}, []string{"database", "name", "value"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "up",
 			Help:      "Database status",
-		}, []string{"exporter", "database"}),
+		}, []string{"database"}),
 	}
 	for _, metric := range metricMap {
 		prometheus.MustRegister(metric)
@@ -91,9 +91,9 @@ func execQuery(database Database, query Query) {
 
 	if err := database.db.Ping(); err != nil {
 		logrus.Errorln("Error pinging oracle:", err)
-		metricMap["up"].WithLabelValues(exporter, database.Database).Set(0)
+		metricMap["up"].WithLabelValues(database.Database).Set(0)
 	} else {
-		metricMap["up"].WithLabelValues(exporter, database.Database).Set(1)
+		metricMap["up"].WithLabelValues(database.Database).Set(1)
 	}
 
 	// query db
@@ -133,9 +133,9 @@ func execQuery(database Database, query Query) {
 				val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
 				// If not a float, skip current index
 				if err != nil {
-					metricMap["value"].WithLabelValues(namespace, database.Database, query.Name, vals[i].(string)).Set(1)
+					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
 				} else {
-					metricMap["value"].WithLabelValues(namespace, database.Database, query.Name, vals[i].(string)).Set(val)
+					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(val)
 				}
 			}
 		}
