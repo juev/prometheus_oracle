@@ -91,6 +91,10 @@ func execQuery(database Database, query Query) {
 		if strings.Contains(err.Error(), "sql: database is closed") {
 			logrus.Infoln("Reconnecting to DB: ", database.Database)
 			database.db, err = sql.Open("oci8", database.Dsn)
+			if err != nil {
+				logrus.Errorln("Cannot connect to db %s: ", database.Database, err)
+				return
+			}
 			database.db.SetMaxIdleConns(maxIdleConns)
 			database.db.SetMaxOpenConns(maxOpenConns)
 		}
@@ -99,6 +103,7 @@ func execQuery(database Database, query Query) {
 	if err := database.db.Ping(); err != nil {
 		logrus.Errorln("Error pinging oracle:", err)
 		metricMap["up"].WithLabelValues(database.Database).Set(0)
+		return
 	} else {
 		metricMap["up"].WithLabelValues(database.Database).Set(1)
 	}
@@ -199,8 +204,12 @@ func main() {
 		database.db.SetMaxOpenConns(maxOpenConns)
 
 		// create cron jobs for every query on database
-		for _, query := range database.Queries {
-			gocron.Every(5).Minutes().DoSafely(execQuery, database, query)
+		if err := database.db.Ping(); err == nil {
+			for _, query := range database.Queries {
+				gocron.Every(5).Minutes().DoSafely(execQuery, database, query)
+			}
+		} else {
+			logrus.Errorf("Error connecting to db '%s': %v", database.Database, err)
 		}
 	}
 
