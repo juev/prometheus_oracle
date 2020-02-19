@@ -3,25 +3,27 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kkyr/fig"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/jasonlvhit/gocron"
 	"github.com/mattn/go-oci8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 type Configuration struct {
-	Host         string
-	Port         string
-	QueryTimeout string
+	Host         string `fig:"host,default=0.0.0.0"`
+	Port         string `fig:"port,default=9101"`
+	QueryTimeout string `fig:"querytimeout,default=10"`
 	Databases    []Database
 }
 
@@ -30,10 +32,10 @@ type Database struct {
 	Host         string
 	User         string
 	Password     string
-	Database     string `yaml:"database"`
-	Port         string `yaml:"port"`
-	MaxIdleConns string
-	MaxOpenConns string
+	Database     string  `yaml:"database"`
+	Port         string  `fig:"port,default=1522"`
+	MaxIdleConns string  `fig:",default=10"`
+	MaxOpenConns string  `fig:",default=10"`
 	Queries      []Query `yaml:"queries"`
 	db           *sql.DB
 }
@@ -41,7 +43,8 @@ type Database struct {
 type Query struct {
 	Sql      string `yaml:"sql"`
 	Name     string `yaml:"name"`
-	Interval string
+	Interval string `fig:",default=1"`
+	Type     string `fig:",default=float"`
 }
 
 const (
@@ -151,18 +154,33 @@ func main() {
 		logrus.Info("Failed to log to file, using default stderr")
 		logrus.SetOutput(os.Stdout)
 	}
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-
-	err = viper.ReadInConfig()
+	err = fig.Load(&configuration)
 	if err != nil {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
-	err = viper.Unmarshal(&configuration)
+
+	//viper.SetConfigName("config")
+	//viper.SetConfigType("yaml")
+	//viper.AddConfigPath(".")
+	//
+	//viper.SetDefault("host", "0.0.0.0")
+	//viper.SetDefault("port", "9101")
+	//viper.SetDefault("querytimeout", "10")
+	//
+	//err = viper.ReadInConfig()
+	//if err != nil {
+	//	logrus.Fatal("Fatal error on reading configuration: ", err)
+	//}
+	//err = viper.Unmarshal(&configuration)
+	//if err != nil {
+	//	logrus.Fatal("Fatal error on unmarshaling configuration: ", err)
+	//}
+
+	indent, err := json.MarshalIndent(configuration, "", "    ")
 	if err != nil {
-		logrus.Fatal("Fatal error on unmarshaling configuration: ", err)
+		logrus.Error(err)
 	}
+	fmt.Println(string(indent))
 
 	timeout, err = strconv.Atoi(configuration.QueryTimeout)
 	if err != nil {

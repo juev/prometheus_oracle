@@ -2,8 +2,8 @@ name: Build prometheus_oracle
 
 on:
   push:
-    branches:
-      - master
+    tags:
+      - '*'
 
 jobs:
   build:
