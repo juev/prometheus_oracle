@@ -65,8 +65,14 @@ func init() {
 		"value": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
-			Name:      "db_metric",
+			Name:      "dbmetric",
 			Help:      "Business metrics from Database",
+		}, []string{"database", "name"}),
+		"string": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "string_dbmetric",
+			Help:      "Business metrics from Database, using string value",
 		}, []string{"database", "name", "value"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -107,7 +113,7 @@ func execQuery(database Database, query Query) {
 		logrus.Errorln("oracle query timed out")
 	}
 	if err != nil {
-		logrus.Errorln(err)
+		logrus.Errorln("oracle query failed", err)
 	}
 
 	cols, _ := rows.Columns()
@@ -131,15 +137,25 @@ func execQuery(database Database, query Query) {
 
 		for i := range cols {
 			if vals[i] == nil {
-				metricMap["value"].WithLabelValues(namespace, database.Database, query.Name, "").Set(0)
-			} else {
-				val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
-				// If not a float, skip current index
-				if err != nil {
-					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
+				if query.Type == "string" {
+					metricMap["string"].WithLabelValues(database.Database, query.Name, "0").Set(0)
 				} else {
-					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(val)
+					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
 				}
+			} else {
+				if query.Type == "string" {
+					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
+				} else {
+					val, _ := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
+				}
+				//val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+				//// If not a float, save to string
+				//if err != nil {
+				//	metricMap[query.Type].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
+				//} else {
+				//	metricMap[query.Type].WithLabelValues(database.Database, query.Name).Set(val)
+				//}
 			}
 		}
 	}

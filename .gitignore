@@ -5,3 +5,5 @@ go_build_prometheus_oracle_
 /instantclient-basic-linux.x64-19.5.0.0.0dbru.zip
 /oracle-instantclient19.5-basic-19.5.0.0.0-1.x86_64.rpm
 /oracle-instantclient19.5-devel-19.5.0.0.0-1.x86_64.rpm
+/go_build_prometheus_oracle
+/oci8.pc
