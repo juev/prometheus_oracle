@@ -109,9 +109,11 @@ func execQuery(database Database, query Query) {
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
 		logrus.Errorf("oracle query '%s' timed out\n", query.Name)
+		return
 	}
 	if err != nil {
 		logrus.Errorf("oracle query '%s' failed: %v\n", query.Name, err)
+		return
 	}
 
 	cols, _ := rows.Columns()
