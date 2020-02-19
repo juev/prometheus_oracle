@@ -9,19 +9,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kkyr/fig"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/jasonlvhit/gocron"
 	"github.com/mattn/go-oci8"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 type Configuration struct {
-	Host         string
-	Port         string
-	QueryTimeout string
+	Host         string `fig:"host,default=0.0.0.0"`
+	Port         string `fig:"port,default=9101"`
+	QueryTimeout string `fig:"querytimeout,default=10"`
 	Databases    []Database
 }
 
@@ -30,10 +30,10 @@ type Database struct {
 	Host         string
 	User         string
 	Password     string
-	Database     string `yaml:"database"`
-	Port         string `yaml:"port"`
-	MaxIdleConns string
-	MaxOpenConns string
+	Database     string  `yaml:"database"`
+	Port         string  `fig:"port,default=1522"`
+	MaxIdleConns string  `fig:",default=10"`
+	MaxOpenConns string  `fig:",default=10"`
 	Queries      []Query `yaml:"queries"`
 	db           *sql.DB
 }
@@ -41,7 +41,8 @@ type Database struct {
 type Query struct {
 	Sql      string `yaml:"sql"`
 	Name     string `yaml:"name"`
-	Interval string
+	Interval string `fig:",default=1"`
+	Type     string `fig:",default=value"`
 }
 
 const (
@@ -55,6 +56,7 @@ var (
 	timeout       int
 	maxIdleConns  int
 	maxOpenConns  int
+	err           error
 )
 
 func init() {
@@ -62,8 +64,14 @@ func init() {
 		"value": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
-			Name:      "db_metric",
+			Name:      "dbmetric",
 			Help:      "Business metrics from Database",
+		}, []string{"database", "name"}),
+		"string": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "string_dbmetric",
+			Help:      "Business metrics from Database, using string value",
 		}, []string{"database", "name", "value"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -79,11 +87,14 @@ func init() {
 
 func execQuery(database Database, query Query) {
 
-	//logrus.Infof("Executing query: %s on DB: %s", query.Sql, database.Database)
 	if err := database.db.Ping(); err != nil {
 		if strings.Contains(err.Error(), "sql: database is closed") {
 			logrus.Infoln("Reconnecting to DB: ", database.Database)
 			database.db, err = sql.Open("oci8", database.Dsn)
+			if err != nil {
+				logrus.Errorln("Cannot connect to db %s: ", database.Database, err)
+				return
+			}
 			database.db.SetMaxIdleConns(maxIdleConns)
 			database.db.SetMaxOpenConns(maxOpenConns)
 		}
@@ -92,6 +103,7 @@ func execQuery(database Database, query Query) {
 	if err := database.db.Ping(); err != nil {
 		logrus.Errorln("Error pinging oracle:", err)
 		metricMap["up"].WithLabelValues(database.Database).Set(0)
+		return
 	} else {
 		metricMap["up"].WithLabelValues(database.Database).Set(1)
 	}
@@ -101,10 +113,12 @@ func execQuery(database Database, query Query) {
 	defer cancel()
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
-		logrus.Errorln("oracle query timed out")
+		logrus.Errorf("oracle query '%s' timed out\n", query.Name)
+		return
 	}
 	if err != nil {
-		logrus.Errorln(err)
+		logrus.Errorf("oracle query '%s' failed: %v\n", query.Name, err)
+		return
 	}
 
 	cols, _ := rows.Columns()
@@ -128,14 +142,17 @@ func execQuery(database Database, query Query) {
 
 		for i := range cols {
 			if vals[i] == nil {
-				metricMap["value"].WithLabelValues(namespace, database.Database, query.Name, "").Set(0)
-			} else {
-				val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
-				// If not a float, skip current index
-				if err != nil {
-					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
+				if query.Type == "string" {
+					metricMap["string"].WithLabelValues(database.Database, query.Name, "0").Set(0)
 				} else {
-					metricMap["value"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(val)
+					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
+				}
+			} else {
+				if query.Type == "string" {
+					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
+				} else {
+					val, _ := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
 				}
 			}
 		}
@@ -143,31 +160,23 @@ func execQuery(database Database, query Query) {
 }
 
 func main() {
-	logrus.SetFormatter(&logrus.JSONFormatter{})
-	file, err := os.OpenFile("log.json", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		logrus.SetOutput(file)
-	} else {
-		logrus.Info("Failed to log to file, using default stderr")
-		logrus.SetOutput(os.Stdout)
-	}
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+	logrus.SetOutput(os.Stdout)
 
-	err = viper.ReadInConfig()
+	err = fig.Load(&configuration)
 	if err != nil {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
-	err = viper.Unmarshal(&configuration)
-	if err != nil {
-		logrus.Fatal("Fatal error on unmarshaling configuration: ", err)
-	}
+
+	//indent, err := json.MarshalIndent(configuration, "", "    ")
+	//if err != nil {
+	//	logrus.Error(err)
+	//}
+	//fmt.Println(string(indent))
 
 	timeout, err = strconv.Atoi(configuration.QueryTimeout)
 	if err != nil {
 		logrus.Fatal("error while converting timeout option value: ", err)
-		panic(err)
+		//panic(err)
 	}
 
 	for _, database := range configuration.Databases {
@@ -182,21 +191,25 @@ func main() {
 		maxIdleConns, err = strconv.Atoi(database.MaxIdleConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxIdleConns option value: ", err)
-			panic(err)
+			//panic(err)
 		}
 
 		maxOpenConns, err = strconv.Atoi(database.MaxOpenConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxOpenConns option value: ", err)
-			panic(err)
+			//panic(err)
 		}
 
 		database.db.SetMaxIdleConns(maxOpenConns)
 		database.db.SetMaxOpenConns(maxOpenConns)
 
 		// create cron jobs for every query on database
-		for _, query := range database.Queries {
-			gocron.Every(5).Minutes().DoSafely(execQuery, database, query)
+		if err := database.db.Ping(); err == nil {
+			for _, query := range database.Queries {
+				gocron.Every(5).Minutes().DoSafely(execQuery, database, query)
+			}
+		} else {
+			logrus.Errorf("Error connecting to db '%s': %v", database.Database, err)
 		}
 	}
 

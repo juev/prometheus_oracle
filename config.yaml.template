@@ -14,9 +14,11 @@ databases:
       - sql: "select numbers1 from dummy"
         name: value1
         interval: 1
+        type: "value"
       - sql: "select numbers2 from dummy"
         name: value2
         interval: 1
+        type: "string"
   - host: 'dummy2'
     user: dummy2
     port: 1522
@@ -28,3 +30,4 @@ databases:
       - sql: "select numbers3 from dummy"
         name: value3
         interval: 2
+        type: "string"
