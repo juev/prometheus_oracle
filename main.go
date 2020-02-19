@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -44,7 +42,7 @@ type Query struct {
 	Sql      string `yaml:"sql"`
 	Name     string `yaml:"name"`
 	Interval string `fig:",default=1"`
-	Type     string `fig:",default=float"`
+	Type     string `fig:",default=value"`
 }
 
 const (
@@ -58,6 +56,7 @@ var (
 	timeout       int
 	maxIdleConns  int
 	maxOpenConns  int
+	err           error
 )
 
 func init() {
@@ -88,7 +87,6 @@ func init() {
 
 func execQuery(database Database, query Query) {
 
-	//logrus.Infof("Executing query: %s on DB: %s", query.Sql, database.Database)
 	if err := database.db.Ping(); err != nil {
 		if strings.Contains(err.Error(), "sql: database is closed") {
 			logrus.Infoln("Reconnecting to DB: ", database.Database)
@@ -110,10 +108,10 @@ func execQuery(database Database, query Query) {
 	defer cancel()
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
-		logrus.Errorln("oracle query timed out")
+		logrus.Errorf("oracle query '%s' timed out\n", query.Name)
 	}
 	if err != nil {
-		logrus.Errorln("oracle query failed", err)
+		logrus.Errorf("oracle query '%s' failed: %v\n", query.Name, err)
 	}
 
 	cols, _ := rows.Columns()
@@ -149,59 +147,29 @@ func execQuery(database Database, query Query) {
 					val, _ := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
 					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
 				}
-				//val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
-				//// If not a float, save to string
-				//if err != nil {
-				//	metricMap[query.Type].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
-				//} else {
-				//	metricMap[query.Type].WithLabelValues(database.Database, query.Name).Set(val)
-				//}
 			}
 		}
 	}
 }
 
 func main() {
-	logrus.SetFormatter(&logrus.JSONFormatter{})
-	file, err := os.OpenFile("log.json", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		logrus.SetOutput(file)
-	} else {
-		logrus.Info("Failed to log to file, using default stderr")
-		logrus.SetOutput(os.Stdout)
-	}
+	logrus.SetOutput(os.Stdout)
+
 	err = fig.Load(&configuration)
 	if err != nil {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
 
-	//viper.SetConfigName("config")
-	//viper.SetConfigType("yaml")
-	//viper.AddConfigPath(".")
-	//
-	//viper.SetDefault("host", "0.0.0.0")
-	//viper.SetDefault("port", "9101")
-	//viper.SetDefault("querytimeout", "10")
-	//
-	//err = viper.ReadInConfig()
+	//indent, err := json.MarshalIndent(configuration, "", "    ")
 	//if err != nil {
-	//	logrus.Fatal("Fatal error on reading configuration: ", err)
+	//	logrus.Error(err)
 	//}
-	//err = viper.Unmarshal(&configuration)
-	//if err != nil {
-	//	logrus.Fatal("Fatal error on unmarshaling configuration: ", err)
-	//}
-
-	indent, err := json.MarshalIndent(configuration, "", "    ")
-	if err != nil {
-		logrus.Error(err)
-	}
-	fmt.Println(string(indent))
+	//fmt.Println(string(indent))
 
 	timeout, err = strconv.Atoi(configuration.QueryTimeout)
 	if err != nil {
 		logrus.Fatal("error while converting timeout option value: ", err)
-		panic(err)
+		//panic(err)
 	}
 
 	for _, database := range configuration.Databases {
@@ -216,13 +184,13 @@ func main() {
 		maxIdleConns, err = strconv.Atoi(database.MaxIdleConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxIdleConns option value: ", err)
-			panic(err)
+			//panic(err)
 		}
 
 		maxOpenConns, err = strconv.Atoi(database.MaxOpenConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxOpenConns option value: ", err)
-			panic(err)
+			//panic(err)
 		}
 
 		database.db.SetMaxIdleConns(maxOpenConns)
