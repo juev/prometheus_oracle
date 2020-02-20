@@ -70,14 +70,32 @@ func init() {
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "dbmetric",
-			Help:      "Business metrics from Database",
+			Help:      "Value of Business metrics from Database",
 		}, []string{"database", "name"}),
 		"string": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "string_dbmetric",
-			Help:      "Business metrics from Database, using string value",
+			Help:      "Value of Business metrics from Database, using string value",
 		}, []string{"database", "name", "value"}),
+		"result": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_error",
+			Help:      "Result of last query, 1 if we have errors on running query",
+		}, []string{"database", "name"}),
+		"duration": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_duration",
+			Help:      "Duration of the query in seconds",
+		}, []string{"database", "name"}),
+		"overhead": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_duration_overhead",
+			Help:      "Overhead in the duration",
+		}, []string{"database", "name"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
@@ -91,6 +109,22 @@ func init() {
 }
 
 func execQuery(database Database, query Query) {
+
+	defer func(begun time.Time) {
+		duration := time.Since(begun).Seconds()
+		metricMap["duration"].WithLabelValues(database.Database, query.Name).Set(duration)
+		if err == nil {
+			metricMap["result"].WithLabelValues(database.Database, query.Name).Set(0)
+		} else {
+			metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
+		}
+		interval, _ := strconv.Atoi(query.Interval)
+		if duration > float64(interval) {
+			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(1)
+		} else {
+			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(0)
+		}
+	}(time.Now())
 
 	// Reconnect if we lost connection
 	if err := database.db.Ping(); err != nil {
@@ -154,11 +188,16 @@ func execQuery(database Database, query Query) {
 				if query.Type == "string" {
 					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
 				} else {
-					val, _ := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					if err != nil {
+						logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
+						return
+					}
 					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
 				}
 			}
 		}
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(0)
 	}
 }
 
