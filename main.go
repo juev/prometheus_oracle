@@ -87,7 +87,7 @@ func init() {
 		"duration": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
-			Name:      "query_duration",
+			Name:      "query_duration_seconds",
 			Help:      "Duration of the query in seconds",
 		}, []string{"database", "name"}),
 		"overhead": prometheus.NewGaugeVec(prometheus.GaugeOpts{
