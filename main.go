@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kkyr/fig"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/jasonlvhit/gocron"
+	"github.com/kkyr/fig"
 	"github.com/mattn/go-oci8"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	flag "github.com/spf13/pflag"
 )
 
 type Configuration struct {
@@ -57,9 +57,14 @@ var (
 	maxIdleConns  int
 	maxOpenConns  int
 	err           error
+	configFile    string
+	logFile       string
 )
 
 func init() {
+	flag.StringVarP(&configFile, "configFile", "c", "config.yaml", "Config file name (default: config.yaml)")
+	flag.StringVarP(&logFile, "logFile", "l", "stdout", "Log filename (default: stdout)")
+
 	metricMap = map[string]*prometheus.GaugeVec{
 		"value": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -158,9 +163,20 @@ func execQuery(database Database, query Query) {
 }
 
 func main() {
-	logrus.SetOutput(os.Stdout)
+	flag.Parse()
+	if logFile == "stdout" {
+		logrus.SetOutput(os.Stdout)
+	} else {
+		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err == nil {
+			logrus.SetOutput(file)
+		} else {
+			logrus.Info("Failed to log to file, using default stdout")
+			logrus.SetOutput(os.Stdout)
+		}
+	}
 
-	err = fig.Load(&configuration)
+	err = fig.Load(&configuration, fig.File(configFile))
 	if err != nil {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
