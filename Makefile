@@ -1,4 +1,4 @@
-VERSION        ?= 0.2.0
+VERSION        ?= 0.2.1
 ORACLE_VERSION ?= 19.5
 LDFLAGS        := -X main.Version=$(VERSION)
 GOFLAGS        := -ldflags "$(LDFLAGS) -s -w"
