@@ -9,40 +9,40 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kkyr/fig"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-
 	"github.com/jasonlvhit/gocron"
+	"github.com/kkyr/fig"
 	"github.com/mattn/go-oci8"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	flag "github.com/spf13/pflag"
 )
 
 type Configuration struct {
 	Host         string `fig:"host,default=0.0.0.0"`
 	Port         string `fig:"port,default=9101"`
-	QueryTimeout string `fig:"querytimeout,default=10"`
+	QueryTimeout string `fig:"querytimeout,default=30"`
 	Databases    []Database
 }
 
 type Database struct {
 	Dsn          string
-	Host         string
-	User         string
-	Password     string
-	Database     string  `yaml:"database"`
+	Host         string  `fig:",default=127.0.0.1"`
+	User         string  `fig:"user"`
+	Password     string  `fig:"password"`
+	Database     string  `fig:"database"`
 	Port         string  `fig:"port,default=1522"`
 	MaxIdleConns string  `fig:",default=10"`
 	MaxOpenConns string  `fig:",default=10"`
-	Queries      []Query `yaml:"queries"`
+	Queries      []Query `fig:"queries"`
 	db           *sql.DB
 }
 
 type Query struct {
-	Sql      string `yaml:"sql"`
-	Name     string `yaml:"name"`
-	Interval string `fig:",default=1"`
-	Type     string `fig:",default=value"`
+	Sql      string `fig:"sql"`
+	Name     string `fig:"name"`
+	Interval string `fig:"interval,default=1"`
+	Type     string `fig:"type,default=value"`
 }
 
 const (
@@ -57,22 +57,45 @@ var (
 	maxIdleConns  int
 	maxOpenConns  int
 	err           error
+	configFile    string
+	logFile       string
 )
 
 func init() {
+	flag.StringVarP(&configFile, "configFile", "c", "config.yaml", "Config file name (default: config.yaml)")
+	flag.StringVarP(&logFile, "logFile", "l", "stdout", "Log filename (default: stdout)")
+
 	metricMap = map[string]*prometheus.GaugeVec{
 		"value": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "dbmetric",
-			Help:      "Business metrics from Database",
+			Help:      "Value of Business metrics from Database",
 		}, []string{"database", "name"}),
 		"string": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "string_dbmetric",
-			Help:      "Business metrics from Database, using string value",
+			Help:      "Value of Business metrics from Database, using string value",
 		}, []string{"database", "name", "value"}),
+		"result": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_error",
+			Help:      "Result of last query, 1 if we have errors on running query",
+		}, []string{"database", "name"}),
+		"duration": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_duration_seconds",
+			Help:      "Duration of the query in seconds",
+		}, []string{"database", "name"}),
+		"overhead": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: exporter,
+			Name:      "query_duration_overhead",
+			Help:      "Overhead in the duration",
+		}, []string{"database", "name"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
@@ -87,21 +110,31 @@ func init() {
 
 func execQuery(database Database, query Query) {
 
+	defer func(begun time.Time) {
+		duration := time.Since(begun).Seconds()
+		metricMap["duration"].WithLabelValues(database.Database, query.Name).Set(duration)
+		interval, _ := strconv.Atoi(query.Interval)
+		// duration in secons, interval in minutes
+		if duration > float64(interval*60) {
+			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(1)
+		} else {
+			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(0)
+		}
+	}(time.Now())
+
+	// Reconnect if we lost connection
 	if err := database.db.Ping(); err != nil {
 		if strings.Contains(err.Error(), "sql: database is closed") {
 			logrus.Infoln("Reconnecting to DB: ", database.Database)
-			database.db, err = sql.Open("oci8", database.Dsn)
-			if err != nil {
-				logrus.Errorln("Cannot connect to db %s: ", database.Database, err)
-				return
-			}
+			database.db, _ = sql.Open("oci8", database.Dsn)
 			database.db.SetMaxIdleConns(maxIdleConns)
 			database.db.SetMaxOpenConns(maxOpenConns)
 		}
 	}
 
+	// Validate connection
 	if err := database.db.Ping(); err != nil {
-		logrus.Errorln("Error pinging oracle:", err)
+		logrus.Errorf("Error on connect to database '%s': %v", database.Database, err)
 		metricMap["up"].WithLabelValues(database.Database).Set(0)
 		return
 	} else {
@@ -113,11 +146,13 @@ func execQuery(database Database, query Query) {
 	defer cancel()
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
-		logrus.Errorf("oracle query '%s' timed out\n", query.Name)
+		logrus.Errorf("oracle query '%s' timed out", query.Name)
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 	if err != nil {
-		logrus.Errorf("oracle query '%s' failed: %v\n", query.Name, err)
+		logrus.Errorf("oracle query '%s' failed: %v", query.Name, err)
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 
@@ -151,18 +186,35 @@ func execQuery(database Database, query Query) {
 				if query.Type == "string" {
 					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
 				} else {
-					val, _ := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+					if err != nil {
+						logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
+						metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
+						return
+					}
 					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
 				}
 			}
 		}
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(0)
 	}
 }
 
 func main() {
-	logrus.SetOutput(os.Stdout)
+	flag.Parse()
+	if logFile == "stdout" {
+		logrus.SetOutput(os.Stdout)
+	} else {
+		file, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err == nil {
+			logrus.SetOutput(file)
+		} else {
+			logrus.Info("Failed to log to file, using default stdout")
+			logrus.SetOutput(os.Stdout)
+		}
+	}
 
-	err = fig.Load(&configuration)
+	err = fig.Load(&configuration, fig.File(configFile))
 	if err != nil {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
