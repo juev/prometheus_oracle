@@ -87,21 +87,19 @@ func init() {
 
 func execQuery(database Database, query Query) {
 
+	// Reconnect if we lost connection
 	if err := database.db.Ping(); err != nil {
 		if strings.Contains(err.Error(), "sql: database is closed") {
 			logrus.Infoln("Reconnecting to DB: ", database.Database)
-			database.db, err = sql.Open("oci8", database.Dsn)
-			if err != nil {
-				logrus.Errorln("Cannot connect to db %s: ", database.Database, err)
-				return
-			}
+			database.db, _ = sql.Open("oci8", database.Dsn)
 			database.db.SetMaxIdleConns(maxIdleConns)
 			database.db.SetMaxOpenConns(maxOpenConns)
 		}
 	}
 
+	// Validate connection
 	if err := database.db.Ping(); err != nil {
-		logrus.Errorln("Error pinging oracle:", err)
+		logrus.Errorf("Error on connect to database '%s': %v", database.Database, err)
 		metricMap["up"].WithLabelValues(database.Database).Set(0)
 		return
 	} else {
@@ -113,11 +111,11 @@ func execQuery(database Database, query Query) {
 	defer cancel()
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
-		logrus.Errorf("oracle query '%s' timed out\n", query.Name)
+		logrus.Errorf("oracle query '%s' timed out", query.Name)
 		return
 	}
 	if err != nil {
-		logrus.Errorf("oracle query '%s' failed: %v\n", query.Name, err)
+		logrus.Errorf("oracle query '%s' failed: %v", query.Name, err)
 		return
 	}
 
