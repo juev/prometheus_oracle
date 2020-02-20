@@ -21,28 +21,28 @@ import (
 type Configuration struct {
 	Host         string `fig:"host,default=0.0.0.0"`
 	Port         string `fig:"port,default=9101"`
-	QueryTimeout string `fig:"querytimeout,default=10"`
+	QueryTimeout string `fig:"querytimeout,default=30"`
 	Databases    []Database
 }
 
 type Database struct {
 	Dsn          string
-	Host         string
-	User         string
-	Password     string
-	Database     string  `yaml:"database"`
+	Host         string  `fig:",default=127.0.0.1"`
+	User         string  `fig:"user"`
+	Password     string  `fig:"password"`
+	Database     string  `fig:"database"`
 	Port         string  `fig:"port,default=1522"`
 	MaxIdleConns string  `fig:",default=10"`
 	MaxOpenConns string  `fig:",default=10"`
-	Queries      []Query `yaml:"queries"`
+	Queries      []Query `fig:"queries"`
 	db           *sql.DB
 }
 
 type Query struct {
-	Sql      string `yaml:"sql"`
-	Name     string `yaml:"name"`
-	Interval string `fig:",default=1"`
-	Type     string `fig:",default=value"`
+	Sql      string `fig:"sql"`
+	Name     string `fig:"name"`
+	Interval string `fig:"interval,default=1"`
+	Type     string `fig:"type,default=value"`
 }
 
 const (
@@ -113,13 +113,9 @@ func execQuery(database Database, query Query) {
 	defer func(begun time.Time) {
 		duration := time.Since(begun).Seconds()
 		metricMap["duration"].WithLabelValues(database.Database, query.Name).Set(duration)
-		if err == nil {
-			metricMap["result"].WithLabelValues(database.Database, query.Name).Set(0)
-		} else {
-			metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
-		}
 		interval, _ := strconv.Atoi(query.Interval)
-		if duration > float64(interval) {
+		// duration in secons, interval in minutes
+		if duration > float64(interval*60) {
 			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(1)
 		} else {
 			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(0)
@@ -151,10 +147,12 @@ func execQuery(database Database, query Query) {
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
 		logrus.Errorf("oracle query '%s' timed out", query.Name)
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 	if err != nil {
 		logrus.Errorf("oracle query '%s' failed: %v", query.Name, err)
+		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 
@@ -191,6 +189,7 @@ func execQuery(database Database, query Query) {
 					val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
 					if err != nil {
 						logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
+						metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
 						return
 					}
 					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
