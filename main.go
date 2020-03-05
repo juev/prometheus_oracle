@@ -178,12 +178,14 @@ func execQuery(database Database, query Query) {
 		for i := range cols {
 			if vals[i] == nil {
 				if query.Type == "string" {
+					metricMap["string"].DeleteLabelValues(database.Database, query.Name)
 					metricMap["string"].WithLabelValues(database.Database, query.Name, "0").Set(0)
 				} else {
 					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
 				}
 			} else {
 				if query.Type == "string" {
+					metricMap["string"].DeleteLabelValues(database.Database, query.Name)
 					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
 				} else {
 					val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
