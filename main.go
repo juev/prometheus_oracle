@@ -42,7 +42,6 @@ type Query struct {
 	Sql      string `fig:"sql"`
 	Name     string `fig:"name"`
 	Interval string `fig:"interval,default=1"`
-	Type     string `fig:"type,default=value"`
 }
 
 const (
@@ -72,13 +71,7 @@ func init() {
 			Name:      "dbmetric",
 			Help:      "Value of Business metrics from Database",
 		}, []string{"database", "name"}),
-		"string": prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: exporter,
-			Name:      "string_dbmetric",
-			Help:      "Value of Business metrics from Database, using string value",
-		}, []string{"database", "name", "value"}),
-		"result": prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		"error": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: exporter,
 			Name:      "query_error",
@@ -89,12 +82,6 @@ func init() {
 			Subsystem: exporter,
 			Name:      "query_duration_seconds",
 			Help:      "Duration of the query in seconds",
-		}, []string{"database", "name"}),
-		"overhead": prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: namespace,
-			Subsystem: exporter,
-			Name:      "query_duration_overhead",
-			Help:      "Overhead in the duration",
 		}, []string{"database", "name"}),
 		"up": prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
@@ -113,13 +100,6 @@ func execQuery(database Database, query Query) {
 	defer func(begun time.Time) {
 		duration := time.Since(begun).Seconds()
 		metricMap["duration"].WithLabelValues(database.Database, query.Name).Set(duration)
-		interval, _ := strconv.Atoi(query.Interval)
-		// duration in secons, interval in minutes
-		if duration > float64(interval*60) {
-			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(1)
-		} else {
-			metricMap["overhead"].WithLabelValues(database.Database, query.Name).Set(0)
-		}
 	}(time.Now())
 
 	// Reconnect if we lost connection
@@ -147,12 +127,12 @@ func execQuery(database Database, query Query) {
 	rows, err := database.db.QueryContext(ctx, query.Sql)
 	if ctx.Err() == context.DeadlineExceeded {
 		logrus.Errorf("oracle query '%s' timed out", query.Name)
-		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
+		metricMap["error"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 	if err != nil {
 		logrus.Errorf("oracle query '%s' failed: %v", query.Name, err)
-		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
+		metricMap["error"].WithLabelValues(database.Database, query.Name).Set(1)
 		return
 	}
 
@@ -176,29 +156,19 @@ func execQuery(database Database, query Query) {
 		}
 
 		for i := range cols {
+			metricMap["error"].WithLabelValues(database.Database, query.Name).Set(0)
 			if vals[i] == nil {
-				if query.Type == "string" {
-					metricMap["string"].DeleteLabelValues(database.Database, query.Name)
-					metricMap["string"].WithLabelValues(database.Database, query.Name, "0").Set(0)
-				} else {
-					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
-				}
+				metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
 			} else {
-				if query.Type == "string" {
-					metricMap["string"].DeleteLabelValues(database.Database, query.Name)
-					metricMap["string"].WithLabelValues(database.Database, query.Name, vals[i].(string)).Set(1)
-				} else {
-					val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
-					if err != nil {
-						logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
-						metricMap["result"].WithLabelValues(database.Database, query.Name).Set(1)
-						return
-					}
-					metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
+				val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+				if err != nil {
+					logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
+					metricMap["error"].WithLabelValues(database.Database, query.Name).Set(1)
+					return
 				}
+				metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
 			}
 		}
-		metricMap["result"].WithLabelValues(database.Database, query.Name).Set(0)
 	}
 }
 
@@ -221,16 +191,9 @@ func main() {
 		logrus.Fatal("Fatal error on reading configuration: ", err)
 	}
 
-	//indent, err := json.MarshalIndent(configuration, "", "    ")
-	//if err != nil {
-	//	logrus.Error(err)
-	//}
-	//fmt.Println(string(indent))
-
 	timeout, err = strconv.Atoi(configuration.QueryTimeout)
 	if err != nil {
 		logrus.Fatal("error while converting timeout option value: ", err)
-		//panic(err)
 	}
 
 	for _, database := range configuration.Databases {
@@ -245,13 +208,11 @@ func main() {
 		maxIdleConns, err = strconv.Atoi(database.MaxIdleConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxIdleConns option value: ", err)
-			//panic(err)
 		}
 
 		maxOpenConns, err = strconv.Atoi(database.MaxOpenConns)
 		if err != nil {
 			logrus.Fatal("error while converting maxOpenConns option value: ", err)
-			//panic(err)
 		}
 
 		database.db.SetMaxIdleConns(maxOpenConns)

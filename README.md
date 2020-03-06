@@ -29,10 +29,8 @@ docker run --rm -v /Users/username/prometheus_oracle/config.yaml:/config.yaml --
 The following metrics are exposed currently.
 
 - oracledb_exporter_dbmetric
-- oracledb_exporter_query_duration
-- oracledb_exporter_query_duration_overhead
+- oracledb_exporter_query_duration_seconds
 - oracledb_exporter_query_error
-- oracledb_exporter_string_dbmetric
 - oracledb_exporter_up
 
 Example:
@@ -44,26 +42,15 @@ oracledb_exporter_dbmetric{database="DB1",name="metric1"} 1.59862528e+06
 oracledb_exporter_dbmetric{database="DB1",name="metric2"} 0
 # HELP oracledb_exporter_query_duration Duration of the query in seconds
 # TYPE oracledb_exporter_query_duration gauge
-oracledb_exporter_query_duration{database="DB1",name="metric1"} 0.005608735
-oracledb_exporter_query_duration{database="DB1",name="metric2"} 0.008431937
-oracledb_exporter_query_duration{database="DB2",name="metric3"} 0.031262699
-oracledb_exporter_query_duration{database="DB2",name="metric4"} 0.01056187
-oracledb_exporter_query_duration{database="DB2",name="metric5"} 0.006411418
-oracledb_exporter_query_duration{database="DB2",name="metric6"} 0.00876666
-oracledb_exporter_query_duration{database="DB2",name="metric7"} 0.027751112
-oracledb_exporter_query_duration{database="DB2",name="metric8"} 0.008800151
-oracledb_exporter_query_duration{database="DB2",name="metric9"} 0.012350262
-# HELP oracledb_exporter_query_duration_overhead Overhead in the duration
-# TYPE oracledb_exporter_query_duration_overhead gauge
-oracledb_exporter_query_duration_overhead{database="DB1",name="metric1"} 0
-oracledb_exporter_query_duration_overhead{database="DB1",name="metric2"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric3"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric4"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric5"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric6"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric7"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric8"} 0
-oracledb_exporter_query_duration_overhead{database="DB2",name="metric9"} 0
+oracledb_exporter_query_duration_seconds{database="DB1",name="metric1"} 0.005608735
+oracledb_exporter_query_duration_seconds{database="DB1",name="metric2"} 0.008431937
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric3"} 0.031262699
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric4"} 0.01056187
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric5"} 0.006411418
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric6"} 0.00876666
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric7"} 0.027751112
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric8"} 0.008800151
+oracledb_exporter_query_duration_seconds{database="DB2",name="metric9"} 0.012350262
 # HELP oracledb_exporter_query_error Result of last query, 1 if we have errors on running query
 # TYPE oracledb_exporter_query_error gauge
 oracledb_exporter_query_error{database="DB1",name="metric1"} 0
@@ -75,15 +62,6 @@ oracledb_exporter_query_error{database="DB2",name="metric6"} 0
 oracledb_exporter_query_error{database="DB2",name="metric7"} 0
 oracledb_exporter_query_error{database="DB2",name="metric8"} 0
 oracledb_exporter_query_error{database="DB2",name="metric9"} 0
-# HELP oracledb_exporter_string_dbmetric Value of Business metrics from Database, using string value
-# TYPE oracledb_exporter_string_dbmetric gauge
-oracledb_exporter_string_dbmetric{database="DB2",name="metric3",value="0"} 0
-oracledb_exporter_string_dbmetric{database="DB2",name="metric4",value="0"} 0
-oracledb_exporter_string_dbmetric{database="DB2",name="metric5",value="0"} 0
-oracledb_exporter_string_dbmetric{database="DB2",name="metric6",value="1 paid errors"} 1
-oracledb_exporter_string_dbmetric{database="DB2",name="metric7",value="Error in logs"} 1
-oracledb_exporter_string_dbmetric{database="DB2",name="metric8",value="Please call me"} 1
-oracledb_exporter_string_dbmetric{database="DB2",name="metric9",value="0"} 0
 # HELP oracledb_exporter_up Database status
 # TYPE oracledb_exporter_up gauge
 oracledb_exporter_up{database="DB1"} 1
@@ -124,6 +102,4 @@ databases:
         name: value1
         # Interval between queries, default value `1` in minites (optional)
         interval: 1
-        # Type of query, default value `value` (can be value/string) (optional)
-        type: "value"
 ```
