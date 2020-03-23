@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	flag "github.com/spf13/pflag"
 )
 
+// Configuration struct
 type Configuration struct {
 	Host         string `fig:"host,default=0.0.0.0"`
 	Port         string `fig:"port,default=9101"`
@@ -25,6 +27,7 @@ type Configuration struct {
 	Databases    []Database
 }
 
+// Database struct
 type Database struct {
 	Dsn          string
 	Host         string  `fig:",default=127.0.0.1"`
@@ -38,6 +41,7 @@ type Database struct {
 	db           *sql.DB
 }
 
+// Query struct
 type Query struct {
 	Sql      string `fig:"sql"`
 	Name     string `fig:"name"`
@@ -105,7 +109,7 @@ func execQuery(database Database, query Query) {
 	// Reconnect if we lost connection
 	if err := database.db.Ping(); err != nil {
 		if strings.Contains(err.Error(), "sql: database is closed") {
-			logrus.Infoln("Reconnecting to DB: ", database.Database)
+			logrus.Infoln("Reconnecting to DB:", database.Database)
 			database.db, _ = sql.Open("oci8", database.Dsn)
 			database.db.SetMaxIdleConns(maxIdleConns)
 			database.db.SetMaxOpenConns(maxOpenConns)
@@ -117,9 +121,8 @@ func execQuery(database Database, query Query) {
 		logrus.Errorf("Error on connect to database '%s': %v", database.Database, err)
 		metricMap["up"].WithLabelValues(database.Database).Set(0)
 		return
-	} else {
-		metricMap["up"].WithLabelValues(database.Database).Set(1)
 	}
+	metricMap["up"].WithLabelValues(database.Database).Set(1)
 
 	// query db
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
@@ -160,15 +163,51 @@ func execQuery(database Database, query Query) {
 			if vals[i] == nil {
 				metricMap["value"].WithLabelValues(database.Database, query.Name).Set(0)
 			} else {
-				val, err := strconv.ParseFloat(strings.TrimSpace(vals[i].(string)), 64)
+				float, err := dbToFloat64(vals[i])
 				if err != nil {
-					logrus.Errorf("Cannot convert value '%s' to float on query '%s': %v", vals[i].(string), query.Name, err)
+					logrus.Errorf("Error on query '%s': %v", query.Name, err)
 					metricMap["error"].WithLabelValues(database.Database, query.Name).Set(1)
 					return
 				}
-				metricMap["value"].WithLabelValues(database.Database, query.Name).Set(val)
+				metricMap["value"].WithLabelValues(database.Database, query.Name).Set(float)
 			}
 		}
+	}
+}
+
+// Convert database.sql types to float64s for Prometheus consumption. Null types are mapped to NaN. string and []byte
+// types are mapped as NaN and !ok
+func dbToFloat64(t interface{}) (float64, error) {
+	switch v := t.(type) {
+	case int64:
+		return float64(v), nil
+	case float64:
+		return v, nil
+	case time.Time:
+		return float64(v.Unix()), nil
+	case []byte:
+		// Try and convert to string and then parse to a float64
+		strV := string(v)
+		result, err := strconv.ParseFloat(strV, 64)
+		if err != nil {
+			return math.NaN(), err
+		}
+		return result, nil
+	case string:
+		result, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return math.NaN(), err
+		}
+		return result, nil
+	case bool:
+		if v {
+			return 1.0, nil
+		}
+		return 0.0, nil
+	case nil:
+		return math.NaN(), nil
+	default:
+		return math.NaN(), nil
 	}
 }
 
@@ -188,31 +227,31 @@ func main() {
 
 	err = fig.Load(&configuration, fig.File(configFile))
 	if err != nil {
-		logrus.Fatal("Fatal error on reading configuration: ", err)
+		logrus.Fatal("Fatal error on reading configuration:", err)
 	}
 
 	timeout, err = strconv.Atoi(configuration.QueryTimeout)
 	if err != nil {
-		logrus.Fatal("error while converting timeout option value: ", err)
+		logrus.Fatal("error while converting timeout option value:", err)
 	}
 
 	for _, database := range configuration.Databases {
 		// connect to database
 		database.Dsn = oci8.QueryEscape(database.User) + "/" + oci8.QueryEscape(database.Password) +
 			"@" + database.Host + ":" + database.Port + "/" + database.Database
-		logrus.Infoln("Connecting to DB: ", database.Database)
+		logrus.Infoln("Connecting to DB:", database.Database)
 		database.db, err = sql.Open("oci8", database.Dsn)
 		if err != nil {
-			logrus.Errorln("Error connecting to db: ", err)
+			logrus.Errorln("Error connecting to db:", err)
 		}
 		maxIdleConns, err = strconv.Atoi(database.MaxIdleConns)
 		if err != nil {
-			logrus.Fatal("error while converting maxIdleConns option value: ", err)
+			logrus.Fatal("error while converting maxIdleConns option value:", err)
 		}
 
 		maxOpenConns, err = strconv.Atoi(database.MaxOpenConns)
 		if err != nil {
-			logrus.Fatal("error while converting maxOpenConns option value: ", err)
+			logrus.Fatal("error while converting maxOpenConns option value:", err)
 		}
 
 		database.db.SetMaxIdleConns(maxOpenConns)
