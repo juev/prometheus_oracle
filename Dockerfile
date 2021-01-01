@@ -1,4 +1,4 @@
-FROM golang:1.13.7 AS build
+FROM golang:latest AS build
 
 ARG ORACLE_VERSION
 ENV ORACLE_VERSION=${ORACLE_VERSION}
