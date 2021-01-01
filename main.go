@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jasonlvhit/gocron"
+	"github.com/go-co-op/gocron"
 	"github.com/kkyr/fig"
 	"github.com/mattn/go-oci8"
 	"github.com/prometheus/client_golang/prometheus"
@@ -235,6 +235,7 @@ func main() {
 		logrus.Fatal("error while converting timeout option value:", err)
 	}
 
+	cron := gocron.NewScheduler(time.UTC)
 	for _, database := range configuration.Databases {
 		// connect to database
 		database.Dsn = oci8.QueryEscape(database.User) + "/" + oci8.QueryEscape(database.Password) +
@@ -260,15 +261,14 @@ func main() {
 		// create cron jobs for every query on database
 		if err := database.db.Ping(); err == nil {
 			for _, query := range database.Queries {
-				gocron.Every(5).Minutes().DoSafely(execQuery, database, query)
+				cron.Every(5).Minutes().Do(execQuery, database, query)
 			}
 		} else {
 			logrus.Errorf("Error connecting to db '%s': %v", database.Database, err)
 		}
 	}
 
-	gocron.Start()
-	gocron.RunAll()
+	cron.StartAsync()
 
 	prometheusConnection := configuration.Host + ":" + configuration.Port
 	logrus.Printf("listen: %s", prometheusConnection)
