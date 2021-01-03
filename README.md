@@ -1,12 +1,14 @@
 # Prometheus Oracle Exporter
 
-# Description
+:exclamation: archived, please use active [prometheus-db-exporter](https://github.com/juev/prometheus-db-exporter)
+
+## Description
 
 A [Prometheus](https://prometheus.io/) exporter for Oracle. All requests are launched in parallel processes and do not block the HTTP entry point of Prometheus.
 
-# Installation
+## Installation
 
-## Docker
+### Docker
 
 From the very beginning, you need to create a configuration file with a list of all connections and all the requests that you need, an example file in `config.yaml.template`.
 Just copy to `config.yaml` and fill it.
@@ -24,7 +26,7 @@ Or just:
 docker run --rm -v /Users/username/prometheus_oracle/config.yaml:/config.yaml --name prometheus_oracle -p 9101:9101 juev/prometheus_oracle
 ```
 
-# Metrics
+## Metrics
 
 The following metrics are exposed currently.
 
@@ -35,7 +37,7 @@ The following metrics are exposed currently.
 
 Example:
 
-```
+```bash
 # HELP oracledb_exporter_dbmetric Value of Business metrics from Database
 # TYPE oracledb_exporter_dbmetric gauge
 oracledb_exporter_dbmetric{database="DB1",name="metric1"} 1.59862528e+06
@@ -68,9 +70,9 @@ oracledb_exporter_up{database="DB1"} 1
 oracledb_exporter_up{database="DB2"} 1
 ```
 
-# Config file
+## Config file
 
-```
+```yaml
 # Host, default value `0.0.0.0` (optional)
 host: 0.0.0.0
 # Port, default value `9101` (optional)
